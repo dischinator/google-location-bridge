@@ -1,0 +1,11 @@
+services:
+  google-standorte:
+    image: localhost/google-location-bridge_google-standorte:latest
+    container_name: google-standorte
+    restart: always     # otherwise it does not start automatically after a reboot
+    init: true          # reaps terminated Chromium processes
+    shm_size: 1gb       # Chromium needs more than the default 64 MB
+    environment:
+      TZ: Europe/Berlin
+    volumes:
+      - /home/gloc/google-location-bridge/data:/data:Z

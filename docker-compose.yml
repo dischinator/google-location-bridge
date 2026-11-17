@@ -1,0 +1,11 @@
+services:
+  google-standorte:
+    build: .
+    container_name: google-standorte
+    restart: unless-stopped
+    init: true          # reaps terminated Chromium processes
+    shm_size: 1gb       # Chromium needs more than the default 64 MB
+    environment:
+      TZ: Europe/Berlin
+    volumes:
+      - ./data:/data

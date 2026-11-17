@@ -1,0 +1,28 @@
+# Example configuration: save a copy as config.toml and adjust it.
+
+[general]
+interval_seconds = 120     # query interval
+headless = false           # true = Chromium without a window (Google detects this more easily)
+expired_after_failures = 3     # this many clear indications in a row = session is considered expired
+exit_after_expired_rounds = 0  # >0: exit with code 2 after this many rounds with an expired session
+                               # (Docker then shows restarts), 0 = keep running and wait for a new curl.txt
+
+[mqtt]
+enabled = false             # false = no MQTT, locations on the console only (host not required)
+host = "192.168.2.220"      # required if enabled = true
+port = 1883
+username = ""
+password = ""
+client_id = "google-standorte"
+tls = false
+ca_file = ""                # optional: path to the CA file (PEM) for an own/self-signed CA, e.g. "/data/ca.crt"
+tls_insecure = false        # true = do NOT verify the certificate + OpenSSL level 0 (workaround only, e.g. for "CA key too weak")
+qos = 1
+retain = true
+debug = false               # true = verbose MQTT debug output (alternatively start parameter --mqtt-debug)
+topic = "standorte"         # results: standorte/<google-id>, standorte/sitzung (ok/abgelaufen), standorte/letzte_abfrage,
+                            # standorte/LWT (last will: online/offline)
+
+[homeassistant]
+discovery = false          # true = MQTT discovery for Home Assistant
+prefix = "homeassistant"

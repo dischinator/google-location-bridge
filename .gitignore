@@ -1,0 +1,23 @@
+# Runtime data & secrets (browser profile, cookies, config, curl export, certificates)
+data/*
+!data/config.example.toml
+
+# Certificates / keys / env files
+*.crt
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Tools / OS
+.claude/
+.vscode/
+.DS_Store

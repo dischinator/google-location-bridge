@@ -1,0 +1,9 @@
+data/
+profile/
+venv/
+curl.txt
+config.toml
+__pycache__/
+*.pyc
+.claude/
+.vscode/
