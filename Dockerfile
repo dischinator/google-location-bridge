@@ -17,7 +17,14 @@ RUN pip install --no-cache-dir -r requirements.txt \
  && rm -rf /var/lib/apt/lists/*
 
 COPY location_bridge.py migrate_config.py entrypoint.sh ./
-RUN chmod +x entrypoint.sh
+# Set permissions explicitly: COPY keeps the host's file modes (e.g. 600),
+# which the unprivileged user could not read
+RUN chmod 755 entrypoint.sh && chmod 644 location_bridge.py migrate_config.py
+
+# Run as unprivileged user (UID 1000). The data folder on the host must belong to it:
+#   chown -R 1000:1000 <data folder>
+RUN useradd -u 1000 -M -d /tmp -s /usr/sbin/nologin app
+USER app
 
 # config.toml, curl.txt and the browser folder "profile" live in the volume
 WORKDIR /data

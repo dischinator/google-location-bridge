@@ -78,6 +78,7 @@ git clone <repo-url> google-location-bridge
 cd google-location-bridge
 mkdir -p data
 # create data/curl.txt and data/config.toml as described above
+sudo chown -R 1000:1000 data   # Linux: the container runs as UID 1000
 docker compose up -d --build
 docker compose logs -f
 ```
@@ -104,7 +105,10 @@ The file [docker-compose_portainer.yml](docker-compose_portainer.yml) uses a **p
    ```bash
    mkdir -p /home/gloc/google-location-bridge/data
    ```
-   Place `curl.txt` and `config.toml` there (see steps 1 and 2).
+   Place `curl.txt` and `config.toml` there (see steps 1 and 2). The container runs as UID 1000, so the folder must belong to it:
+   ```bash
+   sudo chown -R 1000:1000 /home/gloc/google-location-bridge/data
+   ```
 3. In **Portainer**, create a new stack under **Stacks > Add stack** (name e.g. `google-standorte`), paste the content of `docker-compose_portainer.yml` into the **Web editor** and adjust the host path `/home/gloc/google-location-bridge/data` if necessary.
 4. Click **Deploy the stack**. The logs are available under **Containers > google-standorte > Logs**.
 
@@ -112,6 +116,7 @@ Notes:
 
 - `restart: always` makes sure the container starts automatically after a reboot.
 - `:Z` on the volume sets the SELinux label (required e.g. with Podman/Fedora/RHEL). On systems without SELinux it can be omitted.
+- **Hardening**: the container runs as unprivileged user (UID 1000) without Linux capabilities (`cap_drop: ALL`), with `no-new-privileges` and limits for processes and memory. Chromium itself runs without its own sandbox (`--no-sandbox`, Playwright default in containers), so these restrictions matter especially with rootful Podman/Docker.
 - **Update**: fetch the code with `git pull`, run `docker compose build`, then redeploy the stack in Portainer or recreate the container.
 
 ## Operation: session expired

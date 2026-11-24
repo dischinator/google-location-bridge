@@ -5,6 +5,12 @@ services:
     restart: unless-stopped
     init: true          # reaps terminated Chromium processes
     shm_size: 1gb       # Chromium needs more than the default 64 MB
+    security_opt:
+      - no-new-privileges:true   # no privilege escalation (setuid etc.)
+    cap_drop:
+      - ALL             # the app needs no Linux capabilities
+    pids_limit: 512     # limits runaway Chromium processes
+    mem_limit: 2g
     environment:
       TZ: Europe/Berlin
     volumes:
