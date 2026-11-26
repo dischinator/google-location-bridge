@@ -259,6 +259,7 @@ def load_config():
         "exit_after": max(0, int(general.get("exit_after_expired_rounds", 0))),
         "headless": bool(general.get("headless", False)) or "--headless" in sys.argv,
         "idle_blank": bool(general.get("idle_blank", True)),
+        "cache_mb": max(0, int(general.get("cache_size_mb", 100))),
         "mqtt_enabled": enabled,
         "host": m.get("host", ""),
         "port": int(m.get("port", 1883)),
@@ -598,7 +599,11 @@ def main():
         broker = NoMqtt()
 
     with sync_playwright() as pw:
-        ctx = pw.chromium.launch_persistent_context(str(PROFILE), headless=c["headless"])
+        args = []
+        if c["cache_mb"]:
+            # Limits Chromium's HTTP disk cache in the profile (otherwise it grows to several GB)
+            args.append(f"--disk-cache-size={c['cache_mb'] * 1024 * 1024}")
+        ctx = pw.chromium.launch_persistent_context(str(PROFILE), headless=c["headless"], args=args)
         existing = {ck["name"] for ck in ctx.cookies("https://www.google.com")}
         marker = last_import()
         if "SID" not in existing:
