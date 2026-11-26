@@ -3,6 +3,7 @@
 [general]
 interval_seconds = 120     # query interval
 headless = false           # true = Chromium without a window (Google detects this more easily)
+idle_blank = true          # true = close Google Maps between queries (empty tab), saves a lot of CPU
 expired_after_failures = 3     # this many clear indications in a row = session is considered expired
 exit_after_expired_rounds = 0  # >0: exit with code 2 after this many rounds with an expired session
                                # (Docker then shows restarts), 0 = keep running and wait for a new curl.txt

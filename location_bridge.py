@@ -258,6 +258,7 @@ def load_config():
         "expired_after": max(1, int(general.get("expired_after_failures", 3))),
         "exit_after": max(0, int(general.get("exit_after_expired_rounds", 0))),
         "headless": bool(general.get("headless", False)) or "--headless" in sys.argv,
+        "idle_blank": bool(general.get("idle_blank", True)),
         "mqtt_enabled": enabled,
         "host": m.get("host", ""),
         "port": int(m.get("port", 1883)),
@@ -676,6 +677,16 @@ def main():
                     report_error(e, broker)
 
                 session.round_finished()
+
+                # Google Maps keeps rendering (WebGL in software, no GPU in the container) and
+                # causes permanent CPU load. Maps is reloaded in every round anyway, so park the
+                # tab on an empty page until then.
+                if c["idle_blank"]:
+                    try:
+                        page.goto("about:blank")
+                    except Error as e:
+                        if browser_closed(e, ctx):
+                            raise
 
                 # wait_for_timeout instead of time.sleep so the browser keeps working
                 page.wait_for_timeout(c["interval"] * 1000)
