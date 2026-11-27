@@ -53,6 +53,7 @@ Adjust `data/config.toml`. The most important settings:
 | `[general]` | `headless` | Chromium without a window (not needed in the container, Xvfb runs there) |
 | `[general]` | `idle_blank` | `true` (default): Google Maps is replaced by an empty tab between queries. Maps would otherwise keep rendering in software and cause constant CPU load. |
 | `[general]` | `cache_size_mb` | Maximum size of Chromium's disk cache in the profile (default: 100). `0` = Chromium default without a fixed limit. |
+| `[general]` | `browser_restart_hours` | Restart Chromium every N hours (default: 2), because its CPU load grows slowly over time. The login survives the restart. `0` = never. At every browser start the browsing history in the profile (`History`, `Visited Links`, `Top Sites`) is deleted, it is not needed. |
 | `[general]` | `expired_after_failures` | Number of indications in a row after which the session is considered expired |
 | `[general]` | `exit_after_expired_rounds` | `>0`: program exits with code 2, `0`: keep running and wait for a new `curl.txt` |
 | `[mqtt]` | `enabled`, `host`, `port`, `username`, `password` | MQTT connection (`enabled = false` = console output only) |

@@ -44,6 +44,11 @@ CONFIG = Path("config.toml")
 CURL = Path("curl.txt")
 # Remembers which version of curl.txt was last imported into the profile
 IMPORT_MARKER = PROFILE / ".curl_import"
+# Files in the profile that are deleted at every browser start (history, not needed)
+HISTORY_FILES = ("History", "History-journal", "Visited Links", "Top Sites", "Top Sites-journal")
+# Scheduled browser restart: attempts and pause between them before giving up
+RESTART_ATTEMPTS = 3
+RESTART_RETRY_SECONDS = 30
 
 # MQTT/Home Assistant contract: these values are deliberately kept unchanged
 # (German) so existing subscribers, automations and HA entities keep working.
@@ -260,6 +265,7 @@ def load_config():
         "headless": bool(general.get("headless", False)) or "--headless" in sys.argv,
         "idle_blank": bool(general.get("idle_blank", True)),
         "cache_mb": max(0, int(general.get("cache_size_mb", 100))),
+        "restart_hours": max(0.0, float(general.get("browser_restart_hours", 2))),
         "mqtt_enabled": enabled,
         "host": m.get("host", ""),
         "port": int(m.get("port", 1883)),
@@ -582,6 +588,43 @@ def report_error(error, broker):
         pass
 
 
+def open_browser(pw, c):
+    """Starts Chromium with the persistent profile and returns (context, page)."""
+    # Browsing history is not needed (the login lives in the cookies) and only grows,
+    # since Maps is loaded in every round: delete it while Chromium is not running
+    for name in HISTORY_FILES:
+        try:
+            (PROFILE / "Default" / name).unlink(missing_ok=True)
+        except OSError as e:
+            print(f"Could not delete {name}: {e}")
+    args = []
+    if c["cache_mb"]:
+        # Limits Chromium's HTTP disk cache in the profile (otherwise it grows to several GB)
+        args.append(f"--disk-cache-size={c['cache_mb'] * 1024 * 1024}")
+    ctx = pw.chromium.launch_persistent_context(str(PROFILE), headless=c["headless"], args=args)
+    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    page.on("request", at_from_request)
+    return ctx, page
+
+
+def restart_browser(pw, c, broker):
+    """Starts Chromium again after a scheduled restart, with a few retries.
+
+    A failed start must not end up in the "browser closed" handler (which would exit
+    with code 0). After the last failed attempt exit with code 1, so Docker restarts.
+    """
+    for attempt in range(1, RESTART_ATTEMPTS + 1):
+        try:
+            return open_browser(pw, c)
+        except Error as e:
+            report_error(e, broker)
+            if attempt == RESTART_ATTEMPTS:
+                print(f"Browser could not be restarted ({attempt} attempts), exiting with code 1")
+                raise SystemExit(1)
+            print(f"Browser restart failed (attempt {attempt}), retrying in {RESTART_RETRY_SECONDS} s")
+            time.sleep(RESTART_RETRY_SECONDS)
+
+
 def _sigterm(signum, frame):
     # "docker stop" sends SIGTERM: exit as cleanly as with Ctrl+C
     raise KeyboardInterrupt
@@ -599,11 +642,8 @@ def main():
         broker = NoMqtt()
 
     with sync_playwright() as pw:
-        args = []
-        if c["cache_mb"]:
-            # Limits Chromium's HTTP disk cache in the profile (otherwise it grows to several GB)
-            args.append(f"--disk-cache-size={c['cache_mb'] * 1024 * 1024}")
-        ctx = pw.chromium.launch_persistent_context(str(PROFILE), headless=c["headless"], args=args)
+        ctx, page = open_browser(pw, c)
+        browser_started = time.monotonic()
         existing = {ck["name"] for ck in ctx.cookies("https://www.google.com")}
         marker = last_import()
         if "SID" not in existing:
@@ -613,8 +653,6 @@ def main():
         elif version > marker:
             import_cookies(ctx, cookie_string, version, f"{CURL} is newer than the last import")
 
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.on("request", at_from_request)
         session = SessionWatchdog(c, broker)
 
         try:
@@ -682,6 +720,23 @@ def main():
                     report_error(e, broker)
 
                 session.round_finished()
+                idle_start = time.monotonic()
+
+                # A long-running Chromium slowly accumulates CPU load: restart it regularly,
+                # here between two queries so the query itself is not delayed.
+                # Login cookies live in the profile and survive the restart.
+                if c["restart_hours"] and idle_start - browser_started > c["restart_hours"] * 3600:
+                    print(f"[{now()}] Restarting browser (every {c['restart_hours']:g} h)")
+                    try:
+                        ctx.close()
+                    except Error:
+                        pass
+                    ctx, page = restart_browser(pw, c, broker)
+                    browser_started = time.monotonic()
+                    # Normally the login survives in the profile; if not, restore it like at startup
+                    if "SID" not in {ck["name"] for ck in ctx.cookies("https://www.google.com")}:
+                        import_cookies(ctx, cookie_string, last_import() or curl_version(),
+                                       "Login cookies missing after browser restart")
 
                 # Google Maps keeps rendering (WebGL in software, no GPU in the container) and
                 # causes permanent CPU load. Maps is reloaded in every round anyway, so park the
@@ -693,8 +748,10 @@ def main():
                         if browser_closed(e, ctx):
                             raise
 
-                # wait_for_timeout instead of time.sleep so the browser keeps working
-                page.wait_for_timeout(c["interval"] * 1000)
+                # wait_for_timeout instead of time.sleep so the browser keeps working;
+                # the time of a browser restart counts towards the interval
+                remaining = c["interval"] - (time.monotonic() - idle_start)
+                page.wait_for_timeout(max(0, remaining) * 1000)
 
         except KeyboardInterrupt:
             print("\nStopped (Ctrl+C)")
