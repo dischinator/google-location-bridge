@@ -1,4 +1,8 @@
-FROM python:3.12-slim-bookworm
+# Pitfall: "python:3.13-slim" is a floating tag and currently points to Debian 13 (Trixie).
+# A rebuild can silently pull a newer Debian base. If `playwright install --with-deps`
+# fails after a rebuild (Playwright not supporting the Debian release yet), pin the base
+# explicitly, e.g. python:3.13-slim-bookworm (Debian 12, known to work with Playwright).
+FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \

@@ -26,7 +26,7 @@ The topic names and payloads are kept unchanged for compatibility with existing 
 
 ## Requirements
 
-- Docker (or Podman) with Compose, or alternatively Python 3.12 for running locally
+- Docker (or Podman) with Compose, or alternatively Python 3.13 for running locally
 - A Google account that sees location sharing in Google Maps
 - Optional: MQTT broker (e.g. Mosquitto), Home Assistant
 
