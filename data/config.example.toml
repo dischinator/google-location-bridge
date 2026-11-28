@@ -3,7 +3,9 @@
 [general]
 interval_seconds = 120     # query interval
 headless = false           # true = Chromium without a window (Google detects this more easily)
-idle_blank = true          # true = close Google Maps between queries (empty tab), saves a lot of CPU
+page_reload_minutes = 15   # load Google Maps (fresh token, cookie rotation) only every N minutes,
+                           # queries in between reuse the token; 0 = load Maps in every round
+idle_blank = true          # true = show an empty tab right after loading Maps (Maps would keep using CPU)
 cache_size_mb = 100        # maximum size of Chromium's disk cache in the profile, 0 = Chromium default (no limit)
 browser_restart_hours = 2  # restart Chromium regularly (its CPU load grows slowly over time), 0 = never
 window_size = "800x600"    # browser window size, smaller = less rendering work, "" = default (1280x720)

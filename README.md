@@ -7,7 +7,7 @@ Periodically reads **Google Maps location sharing** (locations shared by friends
 Google offers no official API for shared locations. The project therefore starts its own Chromium browser (Playwright) with a persistent profile:
 
 1. On the first start, the login cookies from the file `curl.txt` are imported into the browser profile.
-2. In every interval the browser reloads Google Maps and thereby keeps the session alive (Google rotates the cookies itself, they no longer need to be maintained manually).
+2. Every few minutes (`page_reload_minutes`) the browser reloads Google Maps and thereby keeps the session alive (Google rotates the cookies itself, they no longer need to be maintained manually). The queries in between reuse the token from the last load.
 3. With the current cookies and the fresh `at` token, the location query (RPC `Qt4aBe`) is sent and evaluated.
 4. The results are sent to the broker via MQTT (or only to the console if MQTT is disabled).
 5. If the session expires, this is reported (`standorte/sitzung` = `abgelaufen`). A newly placed `curl.txt` is then picked up **without a restart**.
@@ -51,7 +51,8 @@ Adjust `data/config.toml`. The most important settings:
 |---|---|---|
 | `[general]` | `interval_seconds` | Query interval (default in the example: 120) |
 | `[general]` | `headless` | Chromium without a window (not needed in the container, Xvfb runs there) |
-| `[general]` | `idle_blank` | `true` (default): Google Maps is replaced by an empty tab between queries. Maps would otherwise keep rendering in software and cause constant CPU load. |
+| `[general]` | `page_reload_minutes` | Load Google Maps (fresh token, cookie rotation) only every N minutes (default: 15). Loading Maps is the expensive part of a round, the queries in between only send one small request. If such a query fails, Maps is reloaded immediately and the query is retried. `0` = load Maps in every round. |
+| `[general]` | `idle_blank` | `true` (default): right after loading, Google Maps is replaced by an empty tab. Maps would otherwise keep rendering in software and cause constant CPU load. |
 | `[general]` | `cache_size_mb` | Maximum size of Chromium's disk cache in the profile (default: 100). `0` = Chromium default without a fixed limit. |
 | `[general]` | `browser_restart_hours` | Restart Chromium every N hours (default: 2), because its CPU load grows slowly over time. The login survives the restart. `0` = never. At every browser start the browsing history in the profile (`History`, `Visited Links`, `Top Sites`) is deleted, it is not needed. |
 | `[general]` | `window_size` | Size of the browser window (default: `"800x600"`). Smaller means less rendering work and fewer map tiles. `""` = Playwright default (1280x720). |

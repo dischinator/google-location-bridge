@@ -276,6 +276,7 @@ def load_config():
         "idle_blank": bool(general.get("idle_blank", True)),
         "cache_mb": max(0, int(general.get("cache_size_mb", 100))),
         "restart_hours": max(0.0, float(general.get("browser_restart_hours", 2))),
+        "reload_minutes": max(0.0, float(general.get("page_reload_minutes", 15))),
         "window_size": parse_window_size(general.get("window_size", "800x600")),
         "disable_webgl": bool(general.get("disable_webgl", True)),
         "mqtt_enabled": enabled,
@@ -509,9 +510,8 @@ class NoMqtt:
         pass
 
 
-def process(inner, broker):
+def process(people, broker):
     timestamp = now()
-    people = read_people(inner)
     if not people:
         print(f"[{timestamp}] Empty response – check session or at token")
         broker.query_result(False, 0, "Empty response – check session or at token")
@@ -646,6 +646,18 @@ def restart_browser(pw, c, broker):
             time.sleep(RESTART_RETRY_SECONDS)
 
 
+def load_maps(page, ctx):
+    """Loads Google Maps: keeps the session alive, lets the browser rotate cookies and
+    provides a fresh at token. Returns (problem, page_at); problem is None if logged in."""
+    page.goto("https://www.google.com/maps")
+    page.wait_for_timeout(5000)
+    if "accounts.google.com" in page.url:
+        return "redirect to Google login", None
+    if "SID" not in {ck["name"] for ck in ctx.cookies("https://www.google.com")}:
+        return "login cookie SID missing", None
+    return None, at_from_page(page)
+
+
 def _sigterm(signum, frame):
     # "docker stop" sends SIGTERM: exit as cleanly as with Ctrl+C
     raise KeyboardInterrupt
@@ -675,9 +687,46 @@ def main():
             import_cookies(ctx, cookie_string, version, f"{CURL} is newer than the last import")
 
         session = SessionWatchdog(c, broker)
+        need_reload = True   # load Maps in the next round regardless of the schedule
+        last_reload = 0.0    # time of the last Maps load (monotonic)
+        page_at = None       # at token read from the page at the last Maps load
+        on_maps = False      # the tab currently shows Maps (not about:blank)
+
+        def query():
+            """Sends the Qt4aBe request. Returns (response, people)."""
+            nonlocal url, body
+            new_at = page_at or at_token["value"]
+            if new_at:
+                if new_at not in body and quote(new_at, safe="") not in body:
+                    print(f"[{now()}] New at token applied")
+                body = insert_at(body, new_at)
+            else:
+                print(f"[{now()}] No fresh at token found, using the old one")
+            url = update_url(url)
+            response = ctx.request.post(
+                url,
+                data=body,
+                headers={
+                    "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+                    "x-same-domain": "1",
+                    "origin": "https://www.google.com",
+                    "referer": "https://www.google.com/",
+                },
+            )
+            people = read_people(parse_response(response.text())) if response.ok else []
+            return response, people
+
+        def reload_maps():
+            nonlocal need_reload, last_reload, page_at, on_maps
+            on_maps = True
+            need_reload = False
+            last_reload = time.monotonic()
+            problem, page_at = load_maps(page, ctx)
+            return problem
 
         try:
             while True:
+                loaded = False  # Maps was loaded in this round
                 try:
                     # Expired and a new curl.txt placed? Then apply it without restart
                     if session.expired and curl_version() > (last_import() or 0):
@@ -689,48 +738,42 @@ def main():
                         else:
                             import_cookies(ctx, cookie_string, new_version, f"New {CURL} found")
                             session.reimported()
+                            need_reload = True
 
-                    # Reloading Maps keeps the session alive and lets the browser rotate cookies
-                    page.goto("https://www.google.com/maps")
-                    page.wait_for_timeout(5000)
+                    # Loading Maps keeps the session alive, lets the browser rotate cookies and
+                    # provides a fresh at token. It is the expensive part of a round, so it is
+                    # only done every reload_minutes; the queries in between reuse the token.
+                    problem = None
+                    if (need_reload or not c["reload_minutes"]
+                            or time.monotonic() - last_reload >= c["reload_minutes"] * 60):
+                        loaded = True
+                        problem = reload_maps()
 
-                    cookie_names = {ck["name"] for ck in ctx.cookies("https://www.google.com")}
-                    if "accounts.google.com" in page.url:
-                        session.indication("redirect to Google login", certain=True)
-                    elif "SID" not in cookie_names:
-                        session.indication("login cookie SID missing", certain=True)
-                    else:
-                        page_at = at_from_page(page)
-                        new_at = page_at or at_token["value"]
-                        if new_at:
-                            if new_at not in body and quote(new_at, safe="") not in body:
-                                print(f"[{now()}] New at token applied")
-                            body = insert_at(body, new_at)
-                        else:
-                            print(f"[{now()}] No fresh at token found, using the old one")
+                    if not problem:
+                        response, people = query()
+                        if not loaded and not (response.ok and people):
+                            # Maybe the reused token is no longer accepted: reload Maps and
+                            # retry once before the session watchdog counts it
+                            print(f"[{now()}] Query without fresh Maps load failed, "
+                                  "reloading Maps and retrying")
+                            loaded = True
+                            problem = reload_maps()
+                            if not problem:
+                                response, people = query()
 
-                        url = update_url(url)
-                        response = ctx.request.post(
-                            url,
-                            data=body,
-                            headers={
-                                "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
-                                "x-same-domain": "1",
-                                "origin": "https://www.google.com",
-                                "referer": "https://www.google.com/",
-                            },
-                        )
-                        if not response.ok:
-                            message = f"HTTP {response.status} {response.status_text}".strip()
-                            print(f"[{now()}] Query failed: {message}")
-                            broker.query_result(False, 0, message)
-                            if response.status in (401, 403):
-                                session.indication(message)
-                        elif process(parse_response(response.text()), broker):
-                            session.success()
-                        elif not page_at:
-                            # empty AND the page provides no at token: typical for "not logged in"
-                            session.indication("empty response, page without at token")
+                    if problem:
+                        session.indication(problem, certain=True)
+                    elif not response.ok:
+                        message = f"HTTP {response.status} {response.status_text}".strip()
+                        print(f"[{now()}] Query failed: {message}")
+                        broker.query_result(False, 0, message)
+                        if response.status in (401, 403):
+                            session.indication(message)
+                    elif process(people, broker):
+                        session.success()
+                    elif not page_at:
+                        # empty AND the page provides no at token: typical for "not logged in"
+                        session.indication("empty response, page without at token")
 
                 except Error as e:
                     if browser_closed(e, ctx):
@@ -754,17 +797,20 @@ def main():
                         pass
                     ctx, page = restart_browser(pw, c, broker)
                     browser_started = time.monotonic()
+                    on_maps = False  # the new tab starts empty
                     # Normally the login survives in the profile; if not, restore it like at startup
                     if "SID" not in {ck["name"] for ck in ctx.cookies("https://www.google.com")}:
                         import_cookies(ctx, cookie_string, last_import() or curl_version(),
                                        "Login cookies missing after browser restart")
+                        need_reload = True
 
                 # Google Maps keeps rendering (WebGL in software, no GPU in the container) and
-                # causes permanent CPU load. Maps is reloaded in every round anyway, so park the
-                # tab on an empty page until then.
-                if c["idle_blank"]:
+                # causes permanent CPU load. Right after loading it, park the tab on an empty
+                # page until the next Maps load.
+                if c["idle_blank"] and on_maps:
                     try:
                         page.goto("about:blank")
+                        on_maps = False
                     except Error as e:
                         if browser_closed(e, ctx):
                             raise
