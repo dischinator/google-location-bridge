@@ -246,6 +246,16 @@ def check_legacy_setup(config):
                  "Please run: python migrate_config.py <data folder>")
 
 
+def parse_window_size(value):
+    """'800x600' -> (800, 600); empty string = Playwright default (1280x720)."""
+    if not value:
+        return None
+    m = re.fullmatch(r"\s*(\d+)\s*[xX]\s*(\d+)\s*", str(value))
+    if not m or int(m.group(1)) < 100 or int(m.group(2)) < 100:
+        sys.exit(f'[general] window_size must look like "800x600" (at least 100x100), got: {value!r}')
+    return int(m.group(1)), int(m.group(2))
+
+
 def load_config():
     if not CONFIG.exists():
         sys.exit(f"{CONFIG} is missing. Please copy the example config.toml next to it and adjust it.")
@@ -266,6 +276,8 @@ def load_config():
         "idle_blank": bool(general.get("idle_blank", True)),
         "cache_mb": max(0, int(general.get("cache_size_mb", 100))),
         "restart_hours": max(0.0, float(general.get("browser_restart_hours", 2))),
+        "window_size": parse_window_size(general.get("window_size", "800x600")),
+        "disable_webgl": bool(general.get("disable_webgl", True)),
         "mqtt_enabled": enabled,
         "host": m.get("host", ""),
         "port": int(m.get("port", 1883)),
@@ -601,7 +613,16 @@ def open_browser(pw, c):
     if c["cache_mb"]:
         # Limits Chromium's HTTP disk cache in the profile (otherwise it grows to several GB)
         args.append(f"--disk-cache-size={c['cache_mb'] * 1024 * 1024}")
-    ctx = pw.chromium.launch_persistent_context(str(PROFILE), headless=c["headless"], args=args)
+    if c["disable_webgl"]:
+        # Without WebGL Maps falls back to its 2D "lite mode", which is much cheaper
+        # than 3D rendering in software (no GPU in the container)
+        args.append("--disable-3d-apis")
+    options = {}
+    if c["window_size"]:
+        # Small window = fewer pixels to render and fewer map tiles to load
+        width, height = c["window_size"]
+        options["viewport"] = {"width": width, "height": height}
+    ctx = pw.chromium.launch_persistent_context(str(PROFILE), headless=c["headless"], args=args, **options)
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     page.on("request", at_from_request)
     return ctx, page

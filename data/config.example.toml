@@ -6,6 +6,8 @@ headless = false           # true = Chromium without a window (Google detects th
 idle_blank = true          # true = close Google Maps between queries (empty tab), saves a lot of CPU
 cache_size_mb = 100        # maximum size of Chromium's disk cache in the profile, 0 = Chromium default (no limit)
 browser_restart_hours = 2  # restart Chromium regularly (its CPU load grows slowly over time), 0 = never
+window_size = "800x600"    # browser window size, smaller = less rendering work, "" = default (1280x720)
+disable_webgl = true       # true = Maps uses its cheaper 2D lite mode instead of 3D rendering in software
 expired_after_failures = 3     # this many clear indications in a row = session is considered expired
 exit_after_expired_rounds = 0  # >0: exit with code 2 after this many rounds with an expired session
                                # (Docker then shows restarts), 0 = keep running and wait for a new curl.txt
